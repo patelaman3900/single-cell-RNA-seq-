@@ -1,0 +1,2214 @@
+###################################### This script is for scRNA Seq analysis using Seurat ######################################
+
+#----------------------------------------------Basic Introduction----------------------------------------------------
+#Basic Terminologies
+#UMI= Detect and quantify unique transcript
+#Feature= Genes
+#Barcodes= To identify reads originate from same cells(Unique to each cell)
+#Count matrix/Feature barcode matrix/Gene barcode matrix= Represent number of unique observation of each feature(gene) within each cell barcode
+#Doublets= Two cells encapsulated in one reaction volume
+
+#Currently available scRNA-seq technology
+#Method	Transcript coverage	UMI possibility	Strand specific	 
+#Tang method	~full-length	       No	      No	 
+#Quartz-Seq	Full-length	       No	      No	 
+#SUPeR-seq	Full-length	       No	      No	 
+#Smart-seq	Full-length	       No	      No	 
+#Smart-seq2	Full-length	       No	      No	 
+#MATQ-seq	Full-length	       Yes	     Yes	 
+#STR-seq&STRT/C1 5'-only	       Yes	     Yes	 
+#CEL-seq	3'-only	               Yes	     Yes	 
+#CEL-seq2	3'-only	               Yes	     Yes	 
+#MARS-seq	3'-only	               Yes	     Yes	 
+#CytoSeq	3'-only	               Yes	     Yes	 
+#Drop-seq	3'-only	               Yes	     Yes	 
+#InDrop	        3'-only	               Yes	     Yes	 
+#Chromium	3'-only	               Yes	     Yes	 
+#SPLiT-seq	3'-only	               Yes	     Yes	 
+#sci-RNA-seq	3'-only	               Yes	     Yes	 
+#Seq-Well	3'-only	               Yes	     Yes	 
+#DroNC-seq	3'-only	               Yes	     Yes	 
+#Quartz-Seq2	3'-only	               Yes	     Yes	 
+
+#Packages for scRNA seq Analysis
+#In R
+  #Seurat
+  #SingleCellExperiment
+  #Monocle3
+  #Scater
+#In Pytjon
+  #Scanpy
+
+#Seurat is a S4 object in R and S4 classes use slots to store data in a structures and consistent way.
+  #Handle large datasets efficiently
+  #Keep raw data, normalized data, metadata, graphs, dimension reduction etc
+  #Allow functions like NormalizeData(), ScaleData(), FindVariableFeature() to update only the relevant slot.
+#Seurat Object has lots of slots to store different kind of information about our single cell experiment.   
+   
+   #assay-  store one or multiple experimnet (scRNA seq, scATAC seq)
+   #all processing and downstream analysis happen from here.  
+           #counts= raw UMI counts.
+             #data= normalized data
+             #scale.data= scaled valued 
+
+
+   #meta.data- info about each cells
+   #Used for filtering, coloring plots, grouping cells
+             #number of features 
+             #original identity.
+             #total counts per cells
+             #cluster labels
+             #patient ID
+   
+   #active.assay- indicate whcih RNA is currently being used.
+   #Commands like RunPCA() or VariableFeatures() operate on this assay.
+   
+   #active.ident- store the cell identity class(factor)
+   #Determines how plots are grouped (e.g., in DimPlot()).
+             #cluster ID
+             #cell type labels
+   
+   #graphs- store nearest-neighbour graph structure
+   #Required for Clustering (FindClusters()), UMAP/Louvain algorithms
+             #RNA_snn (Shared Nearest Neighbor graph)
+             #RNA_knn (KNN graph)
+
+   #neighbors-Stores precomputed k-nearest neighbors (KNN) results.
+   #Use: Speeds up:
+            #UMAP
+            #Graph-based clustering
+            #Other nearest-neighbor algorithms
+
+   #reduction- different dimensiloties reduction performed on our data
+   #Used for visualization and downstream clustering.   
+    #Each contains:embeddings for each cell, loadings, variance explained
+           #pca-principal components
+           #umap
+           #tsne
+      
+   #images-Stores spatial transcriptomics data for spatial assays (Visium).   
+   #Required for spatial plots.
+ 
+   #project.name- The project name you assigned (e.g., "NSCLC").
+   #Use: Just a label for organization.
+
+   #misc-  A general-purpose slot for random intermediate output or extra information.
+   #Can store any custom results that users add manually.
+
+
+   #version-Stores version of Seurat used to create the object.
+   #Helps avoid compatibility problems.
+
+   #commands- Stores logs of functions/commands that were run
+   #Lets you track processing history.
+
+   #tools- Stores results from specialized tools (integration, WNN, CellCycle scoring, SCTransform, etc.)
+   #Helpful for downstream reuse.
+#-------------------------------------------Basic Introduction---------------------------------------------
+
+
+
+#----------------------------Reading Single-cell data into a Seurat object in R----------------------------
+#Requirement
+   #R(v4.1.1)
+   #RStudio(v1.4.1717)
+   #R packages
+       #Seurat(v4.0.6)
+       #SeuratDisk(v0.0.0.9019)
+
+#Feature -carcode sparse matrix
+    #Rows= feature(gene)
+    #column= cell barcode  
+    #values= counts
+
+#Different Input formats
+    #Name            #Extension 
+#10x hdf5               .hdf5      
+#R Data Fomat           .rds
+#AnnData Object         .h5ad 
+#Loom                   .loom
+#text based MArket      .mtx
+#Exchange Format(MEX)   .mtx 
+
+
+Link to scRNA-sequencing technologies paper: https://www.ncbi.nlm.nih.gov/pmc/arti...
+#----------------------------Reading Single-cell data into a Seurat object in R----------------------------
+
+
+##--------------------------------The Script for reading the file--------------------------------------------
+#Reading single cell matrices in various format
+#and converting to Seurat object
+setwd("D:/AMAN_PhD/Script/scRNA_seq/Seurat")
+
+#instal packages
+install.packages("Seurat")
+#install.packages("SeuratDisk")
+install.packages("remotes")
+remotes::install_github("mojaveazure/seurat-disk")
+install.packages("BiocManager")
+BiocManager::install("rhdf5")
+install.packages("hdf5r", type = "binary")
+install.packages("tidyverse")
+install.packages("umap")
+install.packages("ggplot2")
+
+#load library
+library("Seurat")
+library(SeuratDisk)
+library(tidyverse)
+library("ggplot2")
+library(umap)
+
+#Reading each type of file
+## .rds format (R format)
+rds_obj = readRDS("ependymal_cells.rds")
+str(rds_obj)
+head(rds_obj)
+
+
+## .HDF5 format (10X CellRanger) 
+hdf5_obj = Read10X_h5(filename="20k_PBMC_3p_HT_nextgem_Chromium_X_filtered_feature_bc_matrix.h5",
+           use.names = TRUE,
+           unique.features = TRUE)
+#check the data in the count matrix by
+hdf5_obj[1:10,1:10]
+#convert this to seurat object
+seurat_hdf_5 = CreateSeuratObject(counts = hdf5_obj)
+#Confirm the Seurat object 
+str(seurat_hdf_5)
+
+
+## .mtx file (CellRanger Output)
+mtx_obj = ReadMtx(mtx = "path/raw_feature_bc_matrix/matrix.mtx.gz",
+        Features="path/raw_feature_bc_matrix/features.tsv.gz",
+        Cells="path/raw_feature_bc_matrix/barcode.tsv.gz")
+#convert this count matrix to Seurat object
+seurat_mtx = CreateSeuratObject(counts = mtx_obj)
+#check the data in the count matrix by
+seurat_mtx[1:10,1:10]
+#Confirm the Seurat object 
+str(seurat_mtx)
+
+
+##.loom files(large sc dataset)
+loom_obj = Connect(filename="file_name.loom",
+        mode ='r')
+#convert this count matrix to Seurat object
+seurat_loom = as.Seurat(loom_obj)
+#check the data in the count matrix by
+seurat_loom[1:10,1:10]
+#Confirm the Seurat object 
+str(seurat_loom)
+
+
+## .h5ad format (scanpy package)
+#step 1: convert AnnData object to an h5Seurat file
+Convert("adata_SS2_for_download.h5ad",
+        dest="h5seurat",overwrite=TRUE)
+ #step 2: Load h5Seurat file into a Seurat object
+seurat_andata = LoadH5Seurat("adata_SS2_for_download.h5seurat")
+#check the data in the count matrix by
+seurat_andata[1:10,1:10]
+#Confirm the Seurat object 
+str(seurat_andata)
+
+
+Link to code: https://github.com/kpatel427/YouTubeT...
+
+Links to datasets used: 
+1. 20k_PBMC_3p_HT_nextgem_Chromium_X_filtered_feature_bc_matrix.h5: https://cf.10xgenomics.com/samples/ce...
+2. 20k_PBMC_3p_HT_nextgem_Chromium_X_raw_feature_bc_matrix.tar.gz: https://cf.10xgenomics.com/samples/ce...
+3. adult-hem-organs-10X-bone-marrow.loom: https://storage.googleapis.com/broad-...
+4. adata_SS2_for_download.h5ad: https://cellgeni.cog.sanger.ac.uk/cvi...
+5. ependymal_cells.rds: https://dataverse.harvard.edu/file.xh...
+##--------------------------------The Script for reading the file--------------------------------------------
+
+
+
+###------------------------The standard workflow to analyze scRNA seq data------------------------------------
+#Count Matrix → QC and filtering → Normalization → Identify highly variable genes → Scale data → 
+#Linear dimensionality reduction (PCA) → Clustering → Non-linear dimensionality reduction (UMAP/t-SNE)
+#Downstream Analysis: Cluster Identification, 
+#Perform differential gene expression between clusters/differential chromatin accessibility analysis, 
+#Inferring trajectories/lineage
+
+#R packages
+   #Seurat
+   #tidyverse
+
+#(Gene Expression - Feature / cell matrix HDF5 (raw))- dataset used below
+#https://www.10xgenomics.com/datasets/20-k-mixture-of-nsclc-dt-cs-from-7-donors-3-v-3-1-3-1-standard-6-1-0
+#Batch file can also be used 
+
+#Load the NSCLC datasets
+nsclc.sparse.m = Read10X_h5("20k_NSCLC_DTC_3p_nextgem_donor_1_count_sample_feature_bc_matrix.h5")
+str(nsclc.sparse.m)
+head(nsclc.sparse.m)
+cts = nsclc.sparse.m$`Gene Expression`  #extract gene expression counts
+
+#initilize the seurat object with the raw(non-normalized data)
+nsclc.seurat.obj = CreateSeuratObject(counts = cts, 
+                                      project="NSCLC", 
+                                      min.features =200 )
+nsclc.seurat.obj
+str(nsclc.seurat.obj)
+
+# 1. QC------------
+View(nsclc.seurat.obj@meta.data)
+
+# % Mitochondrial Reads
+#PercentageFeatureSet()= percent.mt= (UMI count from mt genes/total UMI counts)*100
+# ^MT= Annotation used for mitochondrial genes is seurat
+#nsclc.seurat.obj[["percent.mt"]] = stores the vector inside the seurat object's metadata
+
+nsclc.seurat.obj[["percent.mt"]] = PercentageFeatureSet(nsclc.seurat.obj,pattern = "^MT")
+View(nsclc.seurat.obj@meta.data)
+#Violin Plot of 
+VlnPlot(nsclc.seurat.obj,features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3)
+#scatter plot(x= feature1,y=feature2)
+FeatureScatter(nsclc.seurat.obj, feature1 = "nCount_RNA", feature2 = "nFeature_RNA")+
+  geom_smooth(method='lm')
+
+#(Use DoubletFinder package to remove duplicate cells)
+# 2. Filtering------------ 
+nsclc.seurat.obj = subset(nsclc.seurat.obj,
+                          subset= nFeature_RNA>200 & 
+                            nFeature_RNA <2500 &
+                            percent.mt < 5)
+
+# 3. Normalize data----------
+#nsclc.seurat.obj = NormalizeData(nsclc.seurat.obj, normalization.method = "LogNormalize", scale.factor  = 1000)
+#OR as above are default value
+nsclc.seurat.obj = NormalizeData(nsclc.seurat.obj)
+#To see which commands have been used (check in commands slot)
+str(nsclc.seurat.obj)
+
+#4. Identify highly variable features--------
+#vst= Variance Stabilizing Transformation (mean variance relationship for significantly biological genes)
+nsclc.seurat.obj = FindVariableFeatures(nsclc.seurat.obj, selection.method = "vst", nfeatures = 2000)
+
+#Identify the 10 most highly variable genes
+top10 = head(VariableFeatures(nsclc.seurat.obj),10)
+
+ 
+
+#Plot variable features with and without labels
+plot1 = VariableFeaturePlot(nsclc.seurat.obj)
+#repel = avoid text overlapping
+plot2 = LabelPoints(plot= plot1, points = top10, repel= TRUE, xnudge = 0, ynudge = 0)
+
+# 5. Scaling the data to remove the sources of variation
+all.genes = rownames(nsclc.seurat.obj) 
+nsclc.seurat.obj= ScaleData(nsclc.seurat.obj, features = all.genes)
+str(nsclc.seurat.obj)
+
+# 6. Perform Linear dimensionality reduction------
+nsclc.seurat.obj= RunPCA(nsclc.seurat.obj, features = VariableFeatures(object = nsclc.seurat.obj))
+
+# Visualize PCA results
+print(nsclc.seurat.obj[["pca"]],dims=1:5, nfeatures = 5)
+DimHeatmap(nsclc.seurat.obj, dims = 1, cells = 500, balanced = TRUE)
+
+# Determine dimensionality of the data(remove PC with low variance)
+ElbowPlot(nsclc.seurat.obj)
+
+# 7. Clustering----------
+nsclc.seurat.obj = FindNeighbors(nsclc.seurat.obj, dims = 1:15)
+
+#Understanding Resolution (low res=few clusters)
+nsclc.seurat.obj = FindClusters(nsclc.seurat.obj, resolution = c(0.1,0.3,0.5,0.7,1))
+View(nsclc.seurat.obj@meta.data)
+
+DimPlot(nsclc.seurat.obj, group.by =  "RNA_snn_res.0.5", label = TRUE)
+
+#Setting Identity of clusters
+Idents(nsclc.seurat.obj)
+Idents(nsclc.seurat.obj)= "RNA_snn_res.0.5"
+Idents(nsclc.seurat.obj)
+
+# Non-linear Dimensionality reduction
+nsclc.seurat.obj= RunUMAP(nsclc.seurat.obj, dims = 1:15)
+#Label can be set as TRUE or use LabelCluster function to help label individual clusters
+DimPlot(nsclc.seurat.obj, reduction = "umap")
+
+
+Link to 10X dataset:
+https://www.10xgenomics.com/resources... (Gene Expression - Feature / cell matrix HDF5 (raw))
+
+Link to code:
+https://github.com/kpatel427/YouTubeT...
+###------------------------The standard workflow to analyze scRNA seq data------------------------------------
+
+
+
+
+#----------------------------------Integrating scRNA seq dataset in R--------------------------------------------
+
+#----------------------------------Integrating scRNA seq dataset in R using Seurat(CCA)----------------------------------
+#Goal of the study: Identification of distinct tumor cell populations and key genetic 
+#mechanisms in Hepatoblastoma (HB) through single cell RNA sequencing (scRNA-seq) - GSE180665
+#Study design- sample are collected from 3 patients (ID- HB17,HB30,HB53) from different location
+    #Background liver   #Tumor   #PDX Tumor
+#HB17      yes            yes       yes   
+#HB30      No             yes       yes
+#HB53      yes            yes       No
+
+#Goal of analysis: To integrate data from different patients and correct for batch effects.
+#When to integrate?
+   #multiple scRNA seq data from different sample,condition,Treatment
+   #cell label transfer from reference to query dataset
+   #multimodel sc data(scRNA Seq, scATAC seq) to sc multi-omics dataset, signal collected from separate assays
+   #scRNA Seq and spatial expression data (integrate topological arrangement of cells in tissue with gene expression data)
+#Types of Integration 
+   #Horizontal Integration
+       #same modality from independent cells
+       # Eg-scRNA seq from same tissue from different patients/sequencing technology
+       #Assay are anchored by common gene set
+   #Vertical Integration
+       #Multiple modalities profiled simultaneously from same cells
+       # Eg- scRNA seq and scATAC Seq from same cells
+       #Assays are anchored by cells
+   #Diagonal Integration
+       #Different modalities from the different cells 
+       # Eg- scRNA and scATAC seq performed on separete group of cells
+#Batch correction methods
+   #MNN, ##Seurat v3, #LIGER, #HArmony, #BBKNN, #scVI, #Conos, #Scmap, #Scanorama, #scAlign
+
+#Required R packages
+   #Seurat, #tidyverse, #ggplot2, gridExtra
+
+#NCBI- Gene Expression Omnibus (GSE180665)
+     #choose custom in GSE180665_RAW.tar and download all the filtered_feature_bc_matrix.tar.gz(7 files) 
+     #Uncompress this GSE180665_RAW.tar file in ubuntu(tar -xvf GSE180665_RAW.tar)
+     #now uncompress each of the .tar.gz files (for i in *.gz;do tar -xvzf $i; done) to folders (each have 3 .mtz.ga fles)
+
+#setpath
+setwd("D:/AMAN_PhD/Script/scRNA_seq/Seurat/Integration")
+
+#Install packages
+install.packages("gridExtra")
+
+#load library
+library(Seurat)
+library(ggplot2)
+library(tidyverse)
+library(gridExtra)
+
+#get data  location
+dirs = list.dirs(path= 'D:/AMAN_PhD/Script/scRNA_seq/Seurat/Integration/',recursive = F,full.names = F)
+
+#create the count matrix
+for (x in dirs) {
+  #extract clean sample name
+  name = gsub('_filtered_feature_bc_matrix','',basename(x))
+  #read the 10x files
+  cts = ReadMtx(
+   mtx = paste0(x,'/matrix.mtx.gz'),
+   features = paste0(x,'/features.tsv.gz'),
+   cells = paste0(x,'/barcodes.tsv.gz')
+   )
+#create seurat object
+ assign(name,CreateSeuratObject(counts=cts))
+ }
+ 
+#merge dataset to perform quality control into one go (no integration)
+merged_seurat = merge(HB17_background, y =  c(HB17_PDX,HB17_tumor,HB30_PDX,HB30_tumor,
+                              HB53_background,HB53_tumor),
+      add.cell.ids=ls()[3:9],
+      project= 'HB')
+
+#QC & filtering---------------
+View(merged_seurat@meta.data)
+
+#create a sample column
+merged_seurat$sample= rownames(merged_seurat@meta.data)
+
+#split the sample column
+merged_seurat@meta.data= separate(merged_seurat@meta.data,col = 'sample',
+         into = c('Patient','Type','Barcode'),
+         sep='_')
+
+#ensure all patients sample merged 
+unique(merged_seurat@meta.data$Patient)
+#ensure all patients cell source merged
+unique(merged_seurat@meta.data$Type)
+#calculate mitochondrial percentage
+
+#Calculate the mitochondrial percentage 
+merged_seurat$mitoPercent= PercentageFeatureSet(merged_seurat,pattern= '^MT-')
+
+#explore QC
+
+#filtering
+merged_seurat_filtered = subset(merged_seurat,subset=nCount_RNA>800 &
+        nFeature_RNA>500 &
+         mitoPercent<10)
+
+
+#To check if any batch effects present (standard workflow)
+merged_seurat_filtered = NormalizeData(object = merged_seurat_filtered)               #Normalize data
+merged_seurat_filtered = FindVariableFeatures(object = merged_seurat_filtered)        #Find variable genes
+merged_seurat_filtered = ScaleData(object = merged_seurat_filtered)                   #data scaling 
+merged_seurat_filtered = RunPCA(object = merged_seurat_filtered)                      #PCA analysis 
+ElbowPlot(merged_seurat_filtered)                                                     #Plot PCA by elbow plot      
+merged_seurat_filtered = FindNeighbors(object = merged_seurat_filtered, dims = 1:20)  #Find neighbour features
+merged_seurat_filtered = FindClusters(object = merged_seurat_filtered)                #clustering
+merged_seurat_filtered =  RunUMAP(object = merged_seurat_filtered, dims = 1:20)       #Run UMAP
+
+
+#plot on UMAP
+p1 = DimPlot(merged_seurat_filtered, reduction ='umap', group.by = 'Patient' )         
+p2 = DimPlot(merged_seurat_filtered, reduction ='umap', group.by = 'Type',
+             cols = c('red', 'green', 'blue'))
+
+#to see UMAP side by side 
+grid.arrange(p1,p2,nrow = 2, ncol = 2)
+
+#plot shows the presence on batch effect
+#batch effect correction
+
+obj.list = SplitObject(merged_seurat_filtered , split.by = 'Patient')
+
+#Run Normalization for each object(3) in the list 
+#for(i in 1:length(obj.list)){
+  #obj.list[[i]] = NormalizeData(object = obj.list[[i]])
+  #obj.list[[i]] = FindVariableFeatures(object= obj.list[[i]])
+#}
+
+#use lapply for better speed 
+obj.list <- lapply(obj.list, NormalizeData)
+obj.list <- lapply(obj.list, FindVariableFeatures)
+
+#select integration features 
+features = SelectIntegrationFeatures(object.list = obj.list)
+
+#find integration anchors(CCA) to integrate data across different patients
+anchors = FindIntegrationAnchors(object.list= obj.list,
+                       anchor.features = features)
+
+#integrate data
+seurat.integrated = IntegrateData(anchorset = anchors)
+        
+ #scale data, run PCA and UMAP and visualize integrated data
+seurat.integrated = ScaleData(object = seurat.integrated) 
+seurat.integrated = RunPCA(object = seurat.integrated)
+seurat.integrated = RunUMAP(object = seurat.integrated, dims = 1:50 )
+
+p3 = Dimplot(seurat.integrated, reduction = 'umap', group.by = 'Patient')
+p4 = Dimplot(seurat.integrated, reduction = 'umap', group.by = 'Type',
+             cols = c("red", "green", "blue"))
+
+#plot on UMAP
+grid.arrange(p3, p4, ncol = 2)
+
+#to visualize before and after integration and batch effect correction
+grid.arrange(p1, p2, p3, p4, ncol = 2, nrow= 2)
+
+
+#1) Paper: 
+ #Modeling Hepatoblastoma: Identification of Distinct Tumor Cell Populations and Key Genetic 
+ #Mechanisms through Single Cell Sequencing (scRNA-seq): https://pmc.ncbi.nlm.nih.gov/articles/PMC8426487/
+
+#2) Data: 
+ #GSE180665: https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE180665
+
+#3) Link to code:
+ #https://github.com/kpatel427/YouTubeTutorials/blob/main/singleCell_integration.R
+
+#4) Seurat Integration Vignette:
+ #https://satijalab.org/seurat/articles/integration_introduction.html
+
+#5) Additional resources:
+ #‣ CCA method: https://doi.org/10.1016/j.cell.2019.05.031
+ #‣ MNN method: https://doi.org/10.1038/nbt.4091
+ #‣ https://doi.org/10.1038/s41587-021-00895-7
+ #‣ https://satijalab.org/seurat/articles...
+ #‣ https://satijalab.org/seurat/archive/v3.0/integration.html
+ #‣ https://github.com/hbctraining/scRNA-seq/blob/master/lessons/06_SC_SCT_and_integration.md
+
+#----------------------------------Integrating scRNA seq dataset in R using Seurat(CCA)----------------------------------
+#R seurat:- Identify Anchors in each data set and uses each Anchors to integrate the data set and returns the integrated object.
+           #These object holds the batch corrected expression values for all cells
+#Harmony :- Compute only corrected dimentionality reduction values called embedding. It does not calculate the corrected expression 
+           #values so it does not return any integrated object neither raw data or scaled data get altered.
+
+
+#----------------------------------Integrating scRNA seq dataset in R using Harmony----------------------------------
+#Steps
+ #1.Soft assign cells to clusters, favoring mixed dataset representation
+ #2.Get cluster centroids for each dataset
+ #3.Get dataset correction factors for each cluster
+ #4.Move cells based on soft cluster membership
+ #Repeat Again through step 1 until convergence
+
+#GOAL of STUDY:
+ #To access cell-type-specific changes in gene expression with IFN beta treatment. 
+#STUDY DESIGN: 
+ #PBMC from 8 Lupus patients split into control and stimulated with interferon beta   
+#GOAL of ANALYSIS
+ #To integrate data by condition, overlay cells that are similar in both conditions
+
+#Requirements
+ #R packages:- 
+   #Harmony
+   #Seurat
+   #SeuratData
+   #tidyverse
+   #ggplot2
+
+
+#SCRIPT
+
+#Script to integrate across conditions using Harmony
+setwd("D:/AMAN_PhD/Script/scRNA_seq/Seurat/Integration")
+
+#install packages
+install.packages("harmony")
+install.packages("Seurat")
+install.packages("remotes")
+remotes::install_github("satijalab/seurat-data")
+install.packages("tidyverse")
+install.packages("ggplot2")
+
+# set seed for reproducibility
+set.seed(1234)
+
+library(harmony)
+library(Seurat)
+library(SeuratData)
+library(tidyverse)
+library(ggplot2)
+
+
+
+#get data -------------------------
+AvailableData()
+# install dataset
+InstallData("ifnb")
+
+# load dataset
+LoadData("ifnb")
+str(ifnb)
+#update the seurat object structure
+ifnb <- UpdateSeuratObject(ifnb)
+
+# QC and filtering
+ifnb$mito.percent <- PercentageFeatureSet(ifnb, pattern = '^MT-')
+View(ifnb@meta.data)
+
+# explore QC
+
+# filter
+
+ifnb.filtered <- subset(ifnb, subset = nCount_RNA > 800 &
+                          nFeature_RNA > 200 & 
+                          mito.percent < 5)
+
+# standard workflow steps
+ifnb.filtered <- NormalizeData(ifnb.filtered)
+ifnb.filtered <- FindVariableFeatures(ifnb.filtered)
+ifnb.filtered <- ScaleData(ifnb.filtered)
+ifnb.filtered <- RunPCA(ifnb.filtered)
+ElbowPlot(ifnb.filtered)
+ifnb.filtered <- RunUMAP(ifnb.filtered, dims = 1:20, reduction = 'pca')
+
+#DimPlot to check the structure of data
+before <- DimPlot(ifnb.filtered, reduction = 'umap', group.by = 'stim')
+
+
+# run Harmony -----------
+ifnb.harmony <- ifnb.filtered %>%
+  RunHarmony(group.by.vars = 'stim', plot_convergence = FALSE)
+
+ifnb.harmony@reductions
+
+ifnb.harmony.embed <- Embeddings(ifnb.harmony, "harmony")
+ifnb.harmony.embed[1:10,1:10]
+
+
+
+# Do UMAP and clustering using ** Harmony embeddings instead of PCA **
+ifnb.harmony <- ifnb.harmony %>%
+  RunUMAP(reduction = 'harmony', dims = 1:20) %>%
+  FindNeighbors(reduction = "harmony", dims = 1:20) %>%
+  FindClusters(resolution = 0.5)
+
+# visualize 
+after <- DimPlot(ifnb.harmony, reduction = 'umap', group.by = 'stim')
+
+before|after
+
+
+
+#1) Harmony Paper:  https://doi.org/10.1038/s41592-019-0619-0
+#2) Harmony Vignette: https://portals.broadinstitute.org/harmony/articles/quickstart.html
+#3) Link to code: https://github.com/kpatel427/YouTubeTutorials/blob/main/singleCell_integrate_harmony.R
+#4) Additional resources: https://www.singlecellcourse.org/scrna-seq-dataset-integration.html#harmony-3-vs-5-10k-pbmc
+                         #https://swaruplab.bio.uci.edu/tutorial/integration/integration_tutorial.html
+
+#----------------------------------Integrating scRNA seq dataset in R using Harmony----------------------------------
+
+#----------------------------------Integrating scRNA seq dataset in R--------------------------------------------
+
+
+#-------------------------------------------------------Doublet Finder---------------------------------------------------
+
+
+#-------------------------------------------------------DoubletFinder---------------------------------------------------
+ #Homotypic doublets: doublets derived from transcriptionally similar cells
+ #Heterotypic doublets: doublets derived from transcriptionally distinct cells
+ #Doublet finder is more sensitive to Heterotypic doublet than homotypic
+
+#DoubletFinder needs 3 parameters:
+  #pN = the number of artificial doublets(default 0.25 or 25%)
+  #pK = the neighborhood size (pK) used to compute the number of artificial nearest neighbors
+  #Exp = the number of expected real doublets
+
+  #For example, in a dataset with 15,000 real cells, a pN of 0.25 would represent the integration 
+  # of 5,000 artificial doublets, and a pk of 0.01 would represent a pK of 200 cells.
+
+#How does DoubletFinder work?
+  #1.Simulate artificial doublets from existing scRNA seq data by averaging the gene expression profiles of random pairs of cells 
+
+  #2.Merges and pre-processes real and artificial data using the "Seurat" single-cell analysis pipeline
+
+  #3.Performs dimensionality reduction on the merged real-artificial data using PCA, producing a low dimensional space that 
+  # describes the similarity between real and artificial cells.
+
+  #4.Detects the nearest neighbors for every real cell in principal component (PC) space, and is used to compute each cell's 
+  # proportion of artificial nearest neighbors (pANN) (Highly dependent on pK)
+
+  #5.Predicts real doublets as cells with the top n pANN values, where in is set to the total number of expected doublets
+
+#Original Data → Simulate Doublets → PCA → Define Neighbours → Threashold pANN → Doublets Removed
+
+#Expected number of doubletts(Exp):-to be given by the reagent provider(eg. 10X genomics)
+#Multiplet Rate(%)     No.of Cells Loaded     No. of Cells Recovered
+#0.4%	                   800	                     500
+#0.8%	                   1,600	             1,000
+#1.6%	                   3,200	             2,000
+#2.3%                      4,800	             3,000
+#3.1%	                   6,400	             4,000
+#3.9%	                   8,000	             5,000
+#4.6%	                   9,600	             6,000
+#5.4%	                   11,200	             7,000
+#6.1%	                   12,800	             8,000
+#6.9%	                   14,400	             9,000
+#7.6%	                   16,000	             10,000
+
+##########Best practices##########
+  #DoubletFinder not to be applied on aggregated scRNA-seq data
+  #Not preferable to run on merged data(different samples may have different proportions of cell types and merged objects can be large in size)
+  #Should be run on distinct samples separately
+  #Input data should be cleared of low-quality cells
+  #Remove clusters with low RNA UMIs, high mitochondrial read % and uninformative marker genes 
+
+ 
+#R packages:
+  #DoubletFinder  
+  #Seurat  
+  #tidyverse  
+  #ggplot2
+
+
+#1)Data: 
+   # https://www.10xgenomics.com/datasets/10k-human-pbmcs-3-v3-1-chromium-controller-3-1-high
+   # (Feature / cell matrix (raw)):- 10k_PBMC_3p_nextgem_Chromium_Controller_raw_feature_bc_matrix.tar.gz
+
+
+#Uncompress the file 
+cd /mnt/d/AMAN_PhD/Script/scRNA_seq/Seurat/Doublets
+tar -xvzf 10k_PBMC_3p_nextgem_Chromium_Controller_raw_feature_bc_matrix.tar.gz
+
+
+
+
+#Filter out doublets: DoubletFinder
+
+#setpath
+setwd("D:/AMAN_PhD/Script/scRNA_seq/Seurat/Doublets")
+
+#install package
+install.packages("remotes")
+install.packages("DoubletFinder")
+remotes::install_github("chris-mcginnis-ucsf/DoubletFinder")
+
+
+# load libraries
+library(Seurat)
+library(ggplot2)
+library(tidyverse)
+library(DoubletFinder)
+
+#create counts matrix
+cts <- ReadMtx(mtx = 'D:/AMAN_PhD/Script/scRNA_seq/Seurat/Doublets/raw_feature_bc_matrix/matrix.mtx.gz',
+        features = 'D:/AMAN_PhD/Script/scRNA_seq/Seurat/Doublets/raw_feature_bc_matrix/features.tsv.gz',
+        cells = 'D:/AMAN_PhD/Script/scRNA_seq/Seurat/Doublets/raw_feature_bc_matrix/barcodes.tsv.gz')
+
+cts[1:10,1:10]
+
+# create Seurat object
+pbmc.seurat <- CreateSeuratObject(counts = cts)
+str(pbmc.seurat)
+
+# QC and Filtering
+# explore QC
+
+#Mitochondrial reads
+pbmc.seurat$mitoPercent <- PercentageFeatureSet(pbmc.seurat, pattern = '^MT-')
+
+#Filtered reads
+pbmc.seurat.filtered <- subset(pbmc.seurat, subset = nCount_RNA > 800 &
+         nFeature_RNA > 500 &
+         mitoPercent < 10)
+
+pbmc.seurat
+pbmc.seurat.filtered
+
+
+# pre-process standard workflow
+pbmc.seurat.filtered <- NormalizeData(object = pbmc.seurat.filtered)
+pbmc.seurat.filtered <- FindVariableFeatures(object = pbmc.seurat.filtered)
+pbmc.seurat.filtered <- ScaleData(object = pbmc.seurat.filtered)
+pbmc.seurat.filtered <- RunPCA(object = pbmc.seurat.filtered)
+ElbowPlot(pbmc.seurat.filtered)
+pbmc.seurat.filtered <- FindNeighbors(object = pbmc.seurat.filtered, dims = 1:20)
+pbmc.seurat.filtered <- FindClusters(object = pbmc.seurat.filtered)
+pbmc.seurat.filtered <- RunUMAP(object = pbmc.seurat.filtered, dims = 1:20)
+
+
+
+
+## pK Identification (no ground-truth)(Require R version 4) -------------------------------------------------
+sweep.res.list_pbmc <- paramSweep_v3(pbmc.seurat.filtered, PCs = 1:20, sct = FALSE)
+sweep.stats_pbmc <- summarizeSweep(sweep.res.list_pbmc, GT = FALSE)
+bcmvn_pbmc <- find.pK(sweep.stats_pbmc)
+
+ggplot(bcmvn_pbmc, aes(pK, BCmetric, group = 1)) +
+  geom_point() +
+  geom_line()
+
+pK <- bcmvn_pbmc %>% # select the pK that corresponds to max bcmvn to optimize doublet detection
+  filter(BCmetric == max(BCmetric)) %>%
+  select(pK) 
+pK <- as.numeric(as.character(pK[[1]]))
+
+
+## Homotypic Doublet Proportion Estimate ---------------------------------------------------------------------
+annotations <- pbmc.seurat.filtered@meta.data$seurat_clusters
+homotypic.prop <- modelHomotypic(annotations)           ## ex: annotations <- seu_kidney@meta.data$ClusteringResults
+nExp_poi <- round(0.076*nrow(pbmc.seurat.filtered@meta.data))  ## Assuming 7.5% doublet formation rate - tailor for your dataset
+nExp_poi.adj <- round(nExp_poi*(1-homotypic.prop))
+
+
+# run doubletFinder 
+pbmc.seurat.filtered <- doubletFinder_v3(pbmc.seurat.filtered, 
+                                     PCs = 1:20, 
+                                     pN = 0.25, 
+                                     pK = pK, 
+                                     nExp = nExp_poi.adj,
+                                     reuse.pANN = FALSE, sct = FALSE)
+
+
+# visualize doublets
+DimPlot(pbmc.seurat.filtered, reduction = 'umap', group.by = "DF.classifications_0.25_0.21_691")
+
+
+# number of singlets and doublets
+table(pbmc.seurat.filtered@meta.data$DF.classifications_0.25_0.21_691)
+
+
+#-------------------------------------------------------DoubletFinder---------------------------------------------------
+
+ 
+
+
+#-------------------------------------------------------scDblFinder---------------------------------------------------
+
+#Filter out doublets: scDblFinder
+
+#setpath
+setwd("D:/AMAN_PhD/Script/scRNA_seq/Seurat/Doublets")
+
+#install package
+BiocManager::install("scDblFinder")
+BiocManager::install("DoubletFinder")
+BiocManager::install("scater")
+
+#load libraries
+library("scDblFinder")
+library("DoubletFinder")
+library(Seurat)
+library(tidyverse)
+library(scater)
+
+#set directory
+data_dir <- "D:/AMAN_PhD/Script/scRNA_seq/Seurat/Doublets/raw_feature_bc_matrix"
+
+#create counts matrix
+cts <- Read10X(data.dir = data_dir)
+
+
+
+
+cts[1:10,1:10]
+
+# create Seurat object
+pbmc.seurat <- CreateSeuratObject(counts = cts)
+str(pbmc.seurat)
+
+#Mitochondrial reads
+pbmc.seurat$mitoPercent <- PercentageFeatureSet(pbmc.seurat, pattern = '^MT-')
+
+#Filtered reads
+pbmc.seurat.filtered <- subset(pbmc.seurat, subset = nCount_RNA > 800 &
+                                 nFeature_RNA > 500 &
+                                 mitoPercent < 10)
+
+sce <- as.SingleCellExperiment(pbmc.seurat.filtered)
+
+sce <- logNormCounts(sce)
+
+sce <- runPCA(sce, ncomponents = 50)
+
+sce <- scDblFinder::scDblFinder(sce)
+
+sce <- scDblFinder(sce)
+
+colData(sce)
+
+table(sce$scDblFinder.class)
+
+pbmc.seurat.filtered$scDblFinder_class <- sce$scDblFinder.class
+pbmc.seurat.filtered$scDblFinder_score <- sce$scDblFinder.score
+
+pbmc.seurat.filtered <- NormalizeData(pbmc.seurat.filtered)
+pbmc.seurat.filtered <- FindVariableFeatures(pbmc.seurat.filtered)
+pbmc.seurat.filtered <- ScaleData(pbmc.seurat.filtered)
+pbmc.seurat.filtered <- RunPCA(pbmc.seurat.filtered)
+pbmc.seurat.filtered <- RunUMAP(pbmc.seurat.filtered, dims = 1:30)
+
+DimPlot(
+  pbmc.seurat.filtered,
+  group.by = "scDblFinder_class",
+  cols = c("singlet" = "grey70", "doublet" = "red")
+)
+
+seurat_singlets <- subset(
+  pbmc.seurat.filtered,
+  subset = scDblFinder_class == "singlet"
+)
+
+
+#-------------------------------------------------------scDblFinder---------------------------------------------------
+
+
+#Data set
+  #1)Data: 
+   # https://www.10xgenomics.com/datasets/10k-human-pbmcs-3-v3-1-chromium-controller-3-1-high
+   # (Feature / cell matrix (raw))
+  
+  #2)Link to code
+   # https://github.com/kpatel427/YouTubeTutorials/blob/main/singleCell_doublets.R
+  
+  #3)DoubletFinder github:
+   # https://github.com/chris-mcginnis-ucsf/DoubletFinder
+  
+  #4)DoubletFinder paper:
+   # https://doi.org/10.1016/j.cels.2019.03.003
+
+
+
+#-------------------------------------------------------Doublet Finder---------------------------------------------------
+
+
+
+
+#-------------------------------------------Markers and cluster Identification---------------------------------------------
+#Finding differentially expressed features and cluster identification in scRNA Seq data in R
+#Find markers between specific clusters{ findMarkers() }
+#Find markers in a cluster compared to all other clusters{ findAllMarkers() }
+#Find markers conserved across conditions { findConservedMArkers }
+#CONDITION
+ #Control
+ #Treated
+#CELL TYPE
+ #Cell type A
+ #Cell type B
+
+#GOAL of STUDY: To assess cell-type-specific changes in gene expression in 
+                #eight lupus patient samples treated with interferon (IFN)-B
+#STUDY DESIGN: Peripheral blood mononuclear cells (PBMCs) from eight lupus patients were split into a 
+                #stimulated and control group and the stimulated group was treated with interferon beta.
+#GOAL of ANALYSIS: To identify clusters
+                  #To get genes differentially expressed between conditons in a particular celltype
+
+#Required packages
+ #Seurat
+ #tidyverse
+
+#SCRIPT
+# script to identify cluster identity -----------------
+# Finding markers in every cluster
+# Finding conserved markers 
+# Finding markers DE between conditions
+
+setwd("D:/AMAN_PhD/Script/scRNA_seq/Seurat/Markers_and_cluster_identification")
+
+set.seed(1234)
+#install packages
+install.packages("Seurat")
+install.packages("tidyverse")
+install.packages('BiocManager')
+BiocManager::install('multtest')
+install.packages('metap')
+chooseCRANmirror()
+install.packages("metap", type = "binary")
+
+#load library
+library(Seurat)
+library(tidyverse)
+library(multtest)
+library("metap")
+
+
+# load data
+ifnb_harmony <- readRDS('D:/AMAN_PhD/Script/scRNA_seq/Seurat/Markers_and_cluster_identification/ifnb_harmony.rds')
+str(ifnb_harmony)
+View(ifnb_harmony@meta.data)
+
+# visualize data
+clusters <- DimPlot(ifnb_harmony, reduction = 'umap', group.by = 'seurat_clusters', label = TRUE)
+condition <- DimPlot(ifnb_harmony, reduction = 'umap', group.by = 'stim')
+
+condition|clusters
+
+# findAll markers -----------------
+
+FindAllMarkers(ifnb_harmony,            #seurat object
+               logfc.threshold = 0.25,  #min avg value of cluster one wrt to all other
+               min.pct = 0.1,           #min percentage of gene tested
+               only.pos = TRUE,
+               test.use = 'DESeq2',
+               slot = 'counts')
+
+
+# findConserved markers -------------
+
+# Notes:
+# slot depends on the type of the test used, 
+# default is data slot that stores normalized data
+# DefaultAssay(ifnb_harmony) <- 'RNA'
+
+DefaultAssay(ifnb_harmony)
+
+markers_cluster3 <- FindConservedMarkers(ifnb_harmony,
+                                         ident.1 = 3,         #cluster want to identify wrt to other clusters
+                                         grouping.var = 'stim')
+
+head(markers_cluster3)
+#gene name= FCGR3A
+#control p value = 0 
+#control log2FC= 4.099 (upregulated in cluster 3 wrt all other clusters)
+#control pct1= 0.977(gene is expressed in 97.7% of cells in cluster 3)
+#control pct2= 0.206 (gene is expressed in 20.6% of cells in all other  cluster)
+#control p adj val= 0
+
+# let's visualize top features
+FeaturePlot(ifnb_harmony, features = c('FCGR3A'), min.cutoff = 'q10') #q10= 10th quantile
+#grey= expression is lower than given quantile
+#purple= expression is higher  than given quantile
+
+# min-cut off explanation:
+seq(1,5)
+SetQuantile('q50', seq(1,5))
+SetQuantile('q10', seq(1,5))
+
+
+
+
+
+# rename cluster 3 ident (CD16 Mono marker= 'FCGR3A')
+Idents(ifnb_harmony)
+ifnb_harmony <- RenameIdents(ifnb_harmony, `3` = 'CD16 Mono')
+Idents(ifnb_harmony)
+
+DimPlot(ifnb_harmony, reduction = 'umap', label = T)
+
+# cells already have annotations provided in the metadata
+View(ifnb_harmony@meta.data)
+
+# Settings cluster identities is an iterative step(loop)
+# multiple approaches could be taken - automatic/manual annotations (sometimes both)
+# need to make sure each cell type forms a separate cluster
+
+# setting Idents as Seurat annotations provided (also a sanity check!)
+Idents(ifnb_harmony) <- ifnb_harmony@meta.data$seurat_annotations
+Idents(ifnb_harmony)
+
+DimPlot(ifnb_harmony, reduction = 'umap', label = TRUE)
+
+
+# findMarkers between conditions ---------------------
+ifnb_harmony$celltype.cnd <- paste0(ifnb_harmony$seurat_annotations,'_', ifnb_harmony$stim)
+View(ifnb_harmony@meta.data)
+Idents(ifnb_harmony) <- ifnb_harmony$celltype.cnd
+
+DimPlot(ifnb_harmony, reduction = 'umap', label = TRUE)
+
+# find markers (compare betweenthe clusters)
+b.interferon.response <- FindMarkers(ifnb_harmony, ident.1 = 'CD16 Mono_STIM', ident.2 = 'CD16 Mono_CTRL')
+
+head(b.interferon.response)
+
+# plotting conserved features vs DE features between conditions
+head(markers_cluster3)
+
+
+FeaturePlot(ifnb_harmony, features = c('FCGR3A', 'AIF1', 'IFIT1'), split.by = 'stim', min.cutoff = 'q10')
+
+
+
+
+#DATA 
+#1) Data: 
+ # https://drive.google.com/file/d/13I2250SX-vQfV41th0JmF6BIyx0FGjzO/view
+
+#2) Link to code:
+ # https://github.com/kpatel427/YouTubeTutorials/blob/main/singleCell_CI_markers.R
+
+#3) Vignettes:
+ #▸ https://satijalab.org/seurat/articles...
+ #▸ https://satijalab.org/seurat/articles...
+ #▸ https://hbctraining.github.io/In-depth-NGS-Data-Analysis-Course/sessionIV/lessons/SC_marker_identification.html
+
+#4) Marker databases:
+ #a. SCSig: https://www.gsea-msigdb.org/gsea/msigdb/supplementary_genesets.jsp
+ #b. PangloDB: https://panglaodb.se/
+ #c. CellMarker: http://bio-bigdata.hrbmu.edu.cn/CellMarker/help.jsp
+
+#-------------------------------------------Markers and cluster Identification---------------------------------------------
+
+
+
+
+#----------------------------Pseudo-bulk differential expression analysis using scRNA Seq data---------------------------------------------
+
+#Pseudo bulk analysis
+#Aggregating the counts and metadata to the sample/replicate level.
+#To leverage existing robust bulk RNA-seq DE frameworks, such as DESeq2, edgeR and limma
+#Why perform pseudo-bulk analysis?
+  #Single-cell RNAseq data tend to exhibit an abundance of zero counts, a complicated distribution, and huge heterogeneity
+  #The heterogeneity within and between cell populations manifests major challenges to the differential gene expression 
+    #analysis in scRNAseq data.
+  #Single-cell methods to identify highly expressed genes as DE and exhibit low sensitivity for genes having low expression
+  #Single cell methods often inflate the p-values as each cell is treated as a sample
+  #If cells are treated as samples, then variation across a population is not truly investigated
+  #DE testing performed on "pseudo-bulk" expression profiles leverages the resolution offered by single-cell technologies to 
+    #define the labels and combines it with the statistical rigor of existing methods for DE analyses
+  #Each sample is represented no more than once for each condition, avoiding problems from unmodelled correlations between samples.
+  #To infer which genes might be important for a condition at the population level (not the individual level), samples need to be 
+   #acquired from different organisms/samples, not different cells.
+
+#Required packages
+ #ExperimentHub
+ #Seurat
+ #SESeq2
+ #tidyverse
+
+
+#SCRIPT
+
+#install packages
+install.packages("experiment")
+install.packages("BiocManager")
+BiocManager::install("SparseArray")
+BiocManager::install(c(
+  "SummarizedExperiment",
+  "S4Vectors",
+  "IRanges",
+  "GenomeInfoDb",
+  "Biobase"
+), force=TRUE)
+BiocManager::install("DESeq2")
+
+#set path
+setwd("D:/AMAN_PhD/Script/scRNA_seq/Seurat/Pseudo_bulk_DEG")
+
+#load library
+library(ExperimentHub)
+library(Seurat)
+library(DESeq2)
+library(tidyverse)
+
+
+# get data
+eh <- ExperimentHub()
+query(eh, "Kang")
+
+sce <- eh[["EH2259"]]
+seu.obj <- as.Seurat(sce, data = NULL)
+View(seu.obj@meta.data)
+
+
+# QC and filtering
+# explore QC
+
+
+# get mito percent
+seu.obj$mitoPercent <- PercentageFeatureSet(seu.obj, pattern = '^MT-')
+View(seu.obj@meta.data)
+
+# filter
+seu.filtered <- subset(seu.obj, subset = nFeature_originalexp > 200 & nFeature_originalexp < 2500 &
+                         nCount_originalexp > 800 & 
+                         mitoPercent < 5 &
+                         multiplets == 'singlet')
+
+seu.obj
+seu.filtered
+
+# run Seurat's standard workflow steps
+seu.filtered <- NormalizeData(seu.filtered)
+seu.filtered <- FindVariableFeatures(seu.filtered)
+seu.filtered <- ScaleData(seu.filtered)
+seu.filtered <- RunPCA(seu.filtered)
+ElbowPlot(seu.filtered)
+seu.filtered <- RunUMAP(seu.filtered, dims = 1:20)
+
+# visualize 
+cell_plot <- DimPlot(seu.filtered, reduction = 'umap', group.by = 'cell', label = TRUE)
+cond_plot <- DimPlot(seu.filtered, reduction = 'umap', group.by = 'stim')
+
+cell_plot|cond_plot
+
+# pseudo-bulk workflow -----------------
+# Acquiring necessary metrics for aggregation across cells in a sample
+# 1. counts matrix - sample level
+# counts aggregate to sample level
+
+View(seu.filtered@meta.data)
+seu.filtered$samples <- paste0(seu.filtered$stim, seu.filtered$ind)
+
+DefaultAssay(seu.filtered)
+
+cts <- AggregateExpression(seu.filtered, 
+                           group.by = c("cell", "samples"),
+                           assays = 'originalexp',
+                           slot = "counts",
+                           return.seurat = FALSE)
+
+cts <- cts$originalexp
+
+
+# transpose
+cts.t <- t(cts)
+
+
+# convert to data.frame
+cts.t <- as.data.frame(cts.t)
+
+# get values where to split
+splitRows <- gsub('_.*', '', rownames(cts.t))
+
+
+# split data.frame
+cts.split <- split.data.frame(cts.t,
+                              f = factor(splitRows))
+
+# fix colnames and transpose
+
+cts.split.modified <- lapply(cts.split, function(x){
+  rownames(x) <- gsub('.*_(.*)', '\\1', rownames(x))
+  t(x)
+  
+})
+
+#gsub('.*_(.*)', '\\1', 'B cells_ctrl101')
+
+
+
+# Let's run DE analysis with B cells
+# 1. Get counts matrix
+counts_bcell <- cts.split.modified$`B cells`
+
+
+# 2. generate sample level metadata
+colData <- data.frame(samples = colnames(counts_bcell))
+
+colData <- colData %>%
+  mutate(condition = ifelse(grepl('stim', samples), 'Stimulated', 'Control')) %>%
+  column_to_rownames(var = 'samples')
+
+# get more information from metadata
+
+
+
+
+# perform DESeq2 --------
+# Create DESeq2 object   
+dds <- DESeqDataSetFromMatrix(countData = counts_bcell,
+                              colData = colData,
+                              design = ~ condition)
+
+# filter
+keep <- rowSums(counts(dds)) >=10
+dds <- dds[keep,]
+
+# run DESeq2
+dds <- DESeq(dds)
+
+
+
+# Check the coefficients for the comparison
+resultsNames(dds)
+
+# Generate results object
+res <- results(dds, name = "condition_Stimulated_vs_Control")
+res
+
+
+
+#DATA
+#1) Link to code:
+  #https://github.com/kpatel427/YouTubeTutorials/blob/main/singleCell_pseudoBulk.R
+
+
+#2) Vignettes:
+  #▸ https://hbctraining.github.io/scRNA-s...
+  #▸ http://biocworkshops2019.bioconductor...
+  #▸ https://bioconductor.org/books/3.14/OSCA.multisample/multi-sample-comparisons.html#motivation-2
+  #▸ https://bioconductor.org/books/3.14/OSCA.multisample/multi-sample-comparisons.html#creating-pseudo-bulk-samples
+
+#3) Papers:
+  #▸ https://doi.org/10.1038/s41467-021-25960-2
+  #▸ https://doi.org/10.1186/s12859-019-2599-6
+  #▸ https://doi.org/10.1186/s13059-018-1406-4
+
+
+
+
+#----------------------------Pseudo-bulk differential expression analysis using scRNA Seq data---------------------------------------------
+
+#---------------------------------------------Bulk RNA seq vs scRNA seq -------------------------------------------------------------------
+#Bulk RNA seq
+ #To find DEG 
+ #To find biomarkers
+ #Cost less
+ #Less Laourious
+ #Measure avg expression across population of cells
+ #Cellular heterogenity is masked
+ #Faster and less complex analysis
+
+#STEPS                                       Tools
+#Quality control                        FASTQ NGSQC/RNA-SeQC
+#Pre-processing                         Trimmomatic/PRINSEQ/Soapnuke
+#Read alignment                         Tophat2(Genome)/HISAT2(Genome)/BWA(Genome)/STAR(Transcriptiome+Genome)/Bowtie(Transcriptiome+Genome)
+#Transcript assembly                    Cufflinks/StringTie/Trinity/SOAPdenovoTrans/Trans-AByS
+#Expression quantification              FeatureCount/HTSeq-count/Cufflinks(Tsn)/RSEM(Tsn)/eXpress/DEXSeq/Kallisto/Sailfish/Salmon
+#Differential expression analysis       DESeq2/edgeR
+ 
+#FLOW
+ #Data input(including expression profile, meta information)
+ #DEG OR Weighted Gene Co-expression Network Analysis
+ #Find marker gene related to biological conditions
+ #Gene Functional Enrichment Analysis OR Co-expression Networks
+
+
+
+#scRNA seq
+ #Differences wrt each cell types
+ #More expensive
+ #More Labourious 
+ #More detailed info of individual cells
+ #Reveal cellular heterogenity and subpopulation expression
+ #More complex 
+
+#STEPS
+#fastq.gz
+##Cell Ranger v3.1.0 pipeline
+###Gene-barcode matrix
+#Gene & cell filtering
+#Normalization
+#Scaling & Regression
+#PCA reduction
+#UMAP reduction
+#Graph-based clustering
+#Clean gene-cell expression matrix with clustering information
+
+#CHROMIUM scDATA (10X)
+##Cell Ranger v3.1.0 pipeline
+    #DATA
+#Cell Ranger count
+#Extract barcode, UMI, RNA read 
+     #(1 hamming distance)
+#Correct barcode sequences
+#Align reads (STAR)
+     #(Uniquely mapped reads)
+#Tag reads with genes, transcript hits
+     #1 hamming distance)
+#Correct UMI sequences
+#Count UMIs by cell & gene
+#Selectcellassociated barcodes
+#cell X gene count matrix
+###Gene-barcode matrix
+
+#FLOW
+#Cell clustering and cell type annotation
+#Find marker gene related to each cluster
+#Functional Enrichment Analysis
+
+
+
+
+#Resources
+ # 1- https://doi.org/10.3389/fcvm.2019.00173
+ # 2- https://ngdc.cncb.ac.cn/gen/documentation
+ # 3- https://doi.org/10.1186/s13045-020-01005-x
+ # 4- https://scienceparkstudygroup.github.io/rna-seq-lesson/figures/index.html
+
+
+#---------------------------------------------Bulk RNA seq vs scRNA seq -------------------------------------------------------------------
+
+
+
+#---------------------------------------------sc Trajectory Analysis-------------------------------------------------------------------
+
+#WHAT is trajectory analysis?
+#To check the lineage of cell differentitation by using the expression of gene and its changes
+#To place the cell in the given pathway of development
+
+#What is pseudotime?
+#Cell at earlier stage (smaller pseudotime);Cell at later stage (Higher pseudotime)
+#Abstract unit of progress
+#Measure of progress an individual cell has made through a process such as cell differentiation
+
+#WHEN to perform trajectory analysis?
+#General assumptions:
+#Biological process of interest is dynamic and its mechanism
+#Prior knowledge and/or evidence that a trajectory exists
+#Appropriate cells are sampled
+#Data sampled to sufficient depth ensuring the presence of continuum of states among cells
+
+#WHICH trajectory inference method to choose?
+#Disconnected trajectories?
+#Prior knowledge?
+#Particular topology expected?
+#User Friendly?
+#Compatibilities
+#Performance
+#dynverse()- collection of R packages aimed at supporting the trajectory inference(TI) community on multiple levels
+
+#OVERALL WORKFLOW
+#ScRNA-seq dataset
+#Pre-process data (Normalize , Remove batch effects)
+#Non-linear dimensionality reduction (1-SNE, UMAP)
+#Cluster cells
+#Compare clusters (Identify top markers, Targeted contrasts)
+#Trajectory analysis
+
+#monocle3 WORKFLOW
+#preprocess_cds()
+#reduce_dimension()
+#cluster_cells()
+#top_markers()
+#learn_graph()
+
+#Seurat+monocle3 WORKFLOW
+#Seurat workflow steps + findMarkers()/automatic annotation tools
+
+#NOTE:-
+#cell_data_set object structure
+#monocle3 requires cell_data_set class
+#cell_data_set class is derived from SingleCellExperiment Object
+#Takes the count matrix produced by cell ranger pipelines(10X genomics)
+#cell_data_set require 3 input files
+#1. Expression Matrix(Rows are genes,columns are cells)       
+#2. Cell metadata dataframe (Rows are cells, colums are attributes(cell types,culture conditions,day capture))  
+#3. Gene metadat dataframe (Rows are genes, columns are attribute of the gene(GC content,etc))
+
+#DATA Detail
+#7,551 human blood cells were profiled using scRNA-seq (STRT-seq), covering 32 immunophenotypic cell types from 21 healthy donors.
+#For the demo today, we will be subsetting B cells and progenitors (1,448 cells).
+
+#Goal of the analysis:
+#Construct a trajectory
+#Order cells in pseudotime
+#Find genes that change expression as cells progress along a trajectory
+
+#HOW to perform this analysis?
+
+#Required R Packages
+#monocle3
+#Seurat
+#SeuratWrappers
+#tidyverse
+
+#SCRIPT
+
+# script to perform trajectory analysis
+# https://www.nature.com/articles/s41467-019-10291-0
+#setpath 
+setwd("D:/AMAN_PhD/Script/scRNA_seq/Seurat/scTrajectory_Analysis")
+
+set.seed(1234)
+
+#install packages
+install.packages("BiocManager")
+BiocManager::install(version = "3.19")
+
+install.packages(c("Seurat", "ggplot2", "tidyverse", "remotes"))
+install.packages(c("R.utils", "igraph", "uwot", "FNN", "proxy"))
+install.packages(
+  "https://cran.r-project.org/src/contrib/Archive/grr/grr_0.9.5.tar.gz",
+  repos = NULL,
+  type = "source"
+)
+
+
+remotes::install_github(
+  "cole-trapnell-lab/monocle3",
+  ref = "master",
+  dependencies = TRUE
+)
+
+
+install.packages("remotes")
+remotes::install_github("satijalab/seurat-wrappers")
+
+
+
+#load libraries
+library(grr)
+library(monocle3)
+library(SeuratWrappers)
+library(Seurat)
+library(ggplot2)
+library(tidyverse)
+
+
+# read in data
+markers <- read.delim('D:/AMAN_PhD/Script/scRNA_seq/Seurat/scTrajectory_Analysis/ABC_Marker.txt', header = T) # gene metadata
+metadata <- read.delim('D:/AMAN_PhD/Script/scRNA_seq/Seurat/scTrajectory_Analysis/ABC_Meta.txt', header = T) # cell metadata
+expr <- read.delim('D:/AMAN_PhD/Script/scRNA_seq/Seurat/scTrajectory_Analysis/ABC_umi_matrix_7551_cells.csv', header = T, sep = ',') # expression matrix
+
+
+
+# create seurat object ---------------
+expr.t <- t(expr)    #transpose the expression matrix
+seu.obj <- CreateSeuratObject(counts = expr.t)  
+View(seu.obj@meta.data)
+seu.obj@meta.data <- merge(seu.obj@meta.data, metadata, by.x = 'row.names', by.y = 'cell_id')
+View(seu.obj@meta.data)
+seu.obj@meta.data <- seu.obj@meta.data %>% 
+  column_to_rownames(var = 'Row.names')
+
+Idents(seu.obj) <- factor(Idents(seu.obj), levels = levels(Idents(seu.obj)))
+names(Idents(seu.obj)) <- colnames(seu.obj)
+
+
+cells <- colnames(seu.obj)
+
+counts <- GetAssayData(
+  seu.obj,
+  assay = "RNA",
+  layer = "counts"
+)
+
+# reorder explicitly
+counts <- counts[, cells]
+
+seu.obj <- SetAssayData(
+  seu.obj,
+  assay = "RNA",
+  layer = "counts",
+  new.data = counts
+)
+
+validObject(seu.obj)
+
+
+
+
+
+seu.obj$mitopercent <- PercentageFeatureSet(seu.obj, pattern = '^MT-')
+view(seu.obj$mitopercent)
+seu.obj.filtered <- subset(seu.obj, subset = nCount_RNA > 800 &
+                             nFeature_RNA > 500 &
+                             mitopercent < 10)
+
+
+# subset my seurat object - B cells
+
+unique(seu.obj.filtered@meta.data$population)
+
+Idents(seu.obj.filtered) <- seu.obj.filtered$population
+b.seu <- subset(seu.obj.filtered, idents = "b")
+b.seu
+unique(b.seu@meta.data$redefined_cluster)
+
+# pre-processing using seurat
+b.seu <- NormalizeData(b.seu)
+b.seu <- FindVariableFeatures(b.seu)
+b.seu <- ScaleData(b.seu)
+b.seu <- RunPCA(b.seu)
+b.seu <- FindNeighbors(b.seu, dims = 1:30)
+b.seu <- FindClusters(b.seu, resolution = 0.9)
+b.seu <- RunUMAP(b.seu, dims = 1:30, n.neighbors = 50)
+
+a1 <- DimPlot(b.seu, reduction = 'umap', group.by = 'redefined_cluster', label = T)
+a2 <- DimPlot(b.seu, reduction = 'umap', group.by = 'seurat_clusters', label = T)
+a1|a2
+
+
+# MONOCLE3 WORKFLOW ---------------------
+# monocle3 requires cell_data_set object
+# convert seurat object to cell_data_set object for monocle3
+
+
+
+
+
+# ...1 Convert to cell_data_set object ------------------------
+
+cds <- as.cell_data_set(b.seu)
+cds
+
+cds <- cluster_cells(cds)
+
+# to get cell metadata
+colData(cds)
+# to gene metdata
+fData(cds)
+rownames(fData(cds))[1:10]
+
+# since it misses the gene_short_name column, let's add it
+fData(cds)$gene_short_name <- rownames(fData(cds))
+
+# to get counts
+counts(cds)
+
+
+
+# ...2. Cluster cells (using clustering info from seurat's UMAP)---------------------------
+# let's use the clustering information have
+
+# assign paritions
+reacreate.partition <- c(rep(1,length(cds@colData@rownames)))
+names(reacreate.partition) <- cds@colData@rownames
+reacreate.partition <- as.factor(reacreate.partition)
+
+
+cds@clusters$UMAP$partitions <- reacreate.partition
+
+# Assign the cluster info 
+
+list_cluster <- b.seu@active.ident
+cds@clusters$UMAP$clusters <- list_cluster
+
+
+# Assign UMAP coordinate - cell embeddings
+
+cds@int_colData@listData$reducedDims$UMAP <- b.seu@reductions$umap@cell.embeddings
+
+
+
+# plot
+
+cluster.before.trajectory <- plot_cells(cds,
+                                        color_cells_by = 'cluster',
+                                        label_groups_by_cluster = FALSE,
+                                        group_label_size = 5) +
+  theme(legend.position = "right")
+
+cluster.names <- plot_cells(cds,
+                            color_cells_by = "redefined_cluster",
+                            label_groups_by_cluster = FALSE,
+                            group_label_size = 5) +
+  scale_color_manual(values = c('red', 'blue', 'green', 'maroon', 'yellow', 'grey', 'cyan')) +
+  theme(legend.position = "right")
+
+cluster.before.trajectory | cluster.names
+
+
+
+# ...3. Learn trajectory graph ------------------------
+cds <- learn_graph(cds, use_partition = FALSE)
+
+plot_cells(cds,
+           color_cells_by = 'redefined_cluster',
+           label_groups_by_cluster = FALSE,
+           label_branch_points = FALSE,
+           label_roots = FALSE,
+           label_leaves = FALSE,
+           group_label_size = 5)
+
+
+# ...4. Order the cells in pseudotime -------------------
+
+cds <- order_cells(cds, reduction_method = 'UMAP', root_cells = colnames(cds[,clusters(cds) == 5]))
+
+plot_cells(cds,
+           color_cells_by = 'pseudotime',
+           label_groups_by_cluster = FALSE,
+           label_branch_points = FALSE,
+           label_roots = FALSE,
+           label_leaves = FALSE)
+
+# cells ordered by monocle3 pseudotime
+
+pseudotime(cds)
+cds$monocle3_pseudotime <- pseudotime(cds)
+data.pseudo <- as.data.frame(colData(cds))
+
+ggplot(data.pseudo, aes(monocle3_pseudotime, reorder(redefined_cluster, monocle3_pseudotime, median), fill = redefined_cluster)) +
+  geom_boxplot()
+
+
+
+
+# ...5. Finding genes that change as a function of pseudotime --------------------
+deg_bcells <- graph_test(cds, neighbor_graph = 'principal_graph', cores = 4)
+
+deg_bcells %>% 
+  arrange(q_value) %>% 
+  filter(status == 'OK') %>% 
+  head()
+
+FeaturePlot(b.seu, features = c('E2F2', 'STMN1', 'CD52'))
+
+
+# visualizing pseudotime in seurat
+
+b.seu$pseudotime <- pseudotime(cds)
+Idents(b.seu) <- b.seu$redefined_cluster
+FeaturePlot(b.seu, features = "pseudotime", label = T) 
+
+
+
+#DATA SOURCE
+
+#Link to code:
+#https://github.com/kpatel427/YouTubeTutorials/blob/main/TI_monocle3.R
+
+#Data for analysis:
+#http://scrna.sklehabc.com/
+
+#Alternate Data Link:
+#https://drive.google.com/file/d/1CJ9VSrUCoqPsUI1jrdm2nrLRawI04xZ1/view
+
+#Publication associated with the data:
+#https://doi.org/10.1093/nsr/nwaa180
+
+#Monocle3 tutorial:
+#https://cole-trapnell-lab.github.io/monocle3/docs/trajectories/
+
+#R package collection for Trajectory Inference:
+#https://dynverse.org/
+
+#Publication comparing various Trajectory Inference methods:
+#https://www.biorxiv.org/content/10.1101/276907v1.full.pdf
+
+
+
+#---------------------------------------------sc Trajectory Analysis-------------------------------------------------------------------
+
+
+
+#---------------------------------------------Automatic cell Annotation (SingleR) one Reference-------------------------------------------------------------------
+#Cell Annotation Workflow
+#Automatic Annotation
+ # BY comparison of data with the annotated reference data
+ # By using known marker gene for known cell type
+#Manual Annotation
+ #Identify and label the unknown / unlabelled cell cluster
+#Verification  
+ #Experiment 
+ #Independent data integration 
+ # Statistical support
+ # Consultant with experts
+ 
+#Marker-based Annotation
+ #Labels cells or cell clusters on the basis of the characteristic expression of known marker genes.
+ #Known relationships between marker genes and cell types are obtained from databases, such as
+   #MSigDB
+   #PanglaoDB
+   #CellMarker
+   #manually from the literature
+
+#Reference-based Annotation
+ #Transfer labels from a reference cell or cluster (from experty annotated scRNA-seq data) to a sufficiently 
+ #similar one in the query (data to be annotated)
+ #Reference single-cell data are obtained from sources such as -
+   #Gene Expression Omnibus (GEO)
+   #The Single Cell Expression Atlas
+   #Cell atlas projects
+
+#TOOLS FOR MARKER BASED ANNOTATION
+#Tool 1
+ #AUCell
+#Type
+ #Marker based
+#Language
+ #R
+#Resolution
+ #Single cells
+#Approach
+ #Area under the curve to estimate marker gene set enrichment
+#Allows 'None'
+ #Yes
+#Notes
+#Because of low detection rates at the level of single cells, it requires many markers for every cell type
+
+
+#Tool 2
+ #SCINA
+#Type
+ #Marker based
+#Language
+ #R
+#Resolution
+ #Single cells
+#Approach
+ #Expectation maximization, Gaussian mixture model
+#Allows 'None'
+ #(Optional)
+#Notes
+ #Simultaneously clusters and annotates cells; robust to the inclusion of incorrect marker genes
+
+
+#Tool 3
+ #GSEA/GSVA
+#Type
+ #Marker based
+#Language
+ #R/Java
+#Resolution
+ #Clusters of cells
+#Approach
+ #Enrichment test
+#Allows 'None'
+ #Yes
+#Notes
+ #Marker gene lists must be reformatted in GMT format. Markers must all be differentially expressed in the same direction in the cluster
+
+#Strengths:
+  #These methods will assign labels only to cells associated with known markers, and other cells will remain unlabeled.
+#Pitfalls:
+ #Markers are not easily accessible for all cell types.
+ #The marker gene or gene set (a collection of marker genes) should be specifically and consistently expressed in a given cell or cluster
+ #Work well once a relevant and sufficiently large set of marker genes are collected
+ #These methods work better for annotating major cell types and may not be able to effectively distinguish subtypes. 
+
+
+#TOOLS FOR REFERENCE BASED ANNOTATION
+#Tool 1 
+ #singleCell Net
+#Type
+ #Reference based
+#Language
+ #R 
+#Resolution
+ #Single cells
+#Approach
+ #Relative-expression gene pairs + random forest
+#Allows 'None'
+ #Yes, but rarely does so even when it should
+#Notes
+ #10-100x slower than other methods; high accuracy
+
+#Tool 2
+ #scmap-cluster
+#Type
+ #Reference based
+#Language
+ #R 
+#Resolution
+ #Single cells
+#Approach
+ #Consistent correlations
+#Allows 'None'
+ #Yes  
+#Notes
+ #Fastest method available; balances false-positives and false-negatives; includes web interface for use with a large pre-built reference 
+ #or custom reference set
+
+#Tool 3
+ #scmap-cell
+#Type
+ #Reference based
+#Language
+ #R 
+#Resolution
+ #Single cells
+#Approach
+ #Approximate nearest neighbors
+#Allows 'None'
+ #Yes  
+#Notes
+ #Assigns individual cells to nearest neighbor cells in reference; allows mapping of cell trajectories; fast and scalable
+
+#Tool 4
+ #singleR
+#Type
+ #Reference based
+#Language
+ #R 
+#Resolution
+ #Single cells
+#Approach
+ #k-nearest neighbors, support vector machine, random forest, nearest mean classifier and linear discriminant analysis
+#Allows 'None'
+ #(optional)
+#Notes
+ #Expertise required for correct design and appropriate training of classifier while avoiding overtraining
+
+
+#Strengths:
+  #Accuracy of assigned labels and avoiding incorrect labeling of novel cell types
+#Pitfalls:
+  #Approach is feasible only if high-quality and relevant annotated reference single-cell data are available.
+  #Some tools have low accuracy if the reference data are incomplete or represent a poor match 
+
+
+#SingleR - How does it work?
+  #Input:Unannotated scRNA-seq data
+  #Reference transcriptomes of pure cell types
+  #Output:Annotated single cells
+
+#Step 1:
+  #Identifying variable genes among cell types in the reference set
+#Step 2:
+  #Correlating each single-cell transcriptome with each sample in the reference set
+#Step3: 
+  #Iterative fine-tuning-reducing the reference set to only top cell types
+
+
+#Study design and Goal of Analysis
+#Goal: 
+ #Annotate cell types in 20k human peripheral blood mononuclear cells (PBMCs)
+#Study Design: 
+ #PBMCs of a healthy female donor aged 25-30 were obtained by 10x Genomics.
+
+#Required R packages
+ #singleR (v1.6.1)
+ #celldex (v1.2.0)   reference data set 
+ #Seurat (v4.3.0)
+ #tidyverse (v2.0.0)
+ #pheatmap (v1.0.12)
+
+
+#SCRIPT
+# script to annotate cell types from 20k Human PBMCs from a healthy female donor
+setwd("D:/AMAN_PhD/Script/scRNA_seq/Seurat/Automatic_cell_Annotation_SingleR")
+
+
+#install packages
+if (!require("BiocManager", quietly = TRUE))
+  install.packages("BiocManager")
+BiocManager::install("SingleR")
+BiocManager::install("celldex")
+install.packages("pheatmap")
+install.packages("hdf5r")
+
+#load libraries
+library(SingleR)
+library(celldex)
+library(Seurat)
+library(tidyverse)
+library(pheatmap)
+library(hdf5r)
+
+# Input Data 10X CellRanger .HDF5 format --------------
+hdf5_obj <- Read10X_h5(filename = 'D:/AMAN_PhD/Script/scRNA_seq/Seurat/Automatic_cell_Annotation_SingleR/20k_PBMC_3p_HT_nextgem_Chromium_X_filtered_feature_bc_matrix.h5',
+                       use.names = TRUE,
+                       unique.features = TRUE)
+pbmc.seurat <- CreateSeuratObject(counts = hdf5_obj)
+
+# QC and Filtering -----------
+# explore QC
+pbmc.seurat$mitoPercent <- PercentageFeatureSet(pbmc.seurat, pattern = '^MT-')
+pbmc.seurat.filtered <- subset(pbmc.seurat, subset = nCount_RNA > 800 &
+                                 nFeature_RNA > 500 &
+                                 mitoPercent < 10)
+
+
+# It is a good practice to filter out cells with non-sufficient genes identified and genes with non-sufficient expression across cells.
+
+
+# pre-process standard workflow ---------------
+pbmc.seurat.filtered <- NormalizeData(object = pbmc.seurat.filtered)
+pbmc.seurat.filtered <- FindVariableFeatures(object = pbmc.seurat.filtered)
+pbmc.seurat.filtered <- ScaleData(object = pbmc.seurat.filtered)
+pbmc.seurat.filtered <- RunPCA(object = pbmc.seurat.filtered)
+pbmc.seurat.filtered <- FindNeighbors(object = pbmc.seurat.filtered, dims = 1:20)
+pbmc.seurat.filtered <- FindClusters(object = pbmc.seurat.filtered)
+pbmc.seurat.filtered <- RunUMAP(object = pbmc.seurat.filtered, dims = 1:20)
+
+# running steps above to get clusters
+View(pbmc.seurat.filtered@meta.data)
+DimPlot(pbmc.seurat.filtered, reduction = 'umap')
+
+# get reference data -----------
+ref <- celldex::HumanPrimaryCellAtlasData()
+View(as.data.frame(colData(ref)))
+
+# expression values are log counts (log normalized counts)
+
+
+# run SingleR (default mode) ---------
+# default for SingleR is to perform annotation of each individual cell in the test dataset
+
+pbmc_counts <- GetAssayData(pbmc.seurat.filtered, layer = 'counts')
+
+pred <- SingleR(test = pbmc_counts,
+                ref = ref,
+                labels = ref$label.main)
+
+pred
+
+pbmc.seurat.filtered$singleR.labels <- pred$labels[match(rownames(pbmc.seurat.filtered@meta.data), rownames(pred))]
+DimPlot(pbmc.seurat.filtered, reduction = 'umap', group.by = 'singleR.labels')
+
+
+# Annotation diagnostics ----------
+
+
+# ...Based on the scores within cells -----------
+pred
+pred$scores
+
+plotScoreHeatmap(pred)
+
+
+# ...Based on deltas across cells ----------
+
+plotDeltaDistribution(pred)
+
+
+
+
+# ...Comparing to unsupervised clustering ------------
+
+tab <- table(Assigned=pred$labels, Clusters=pbmc.seurat.filtered$seurat_clusters)
+pheatmap(log10(tab+10), color = colorRampPalette(c('white','blue'))(10))
+
+
+
+#DATA RESOURCES
+#▸ Link to Data:
+ # https://www.10xgenomics.com/datasets/20-k-human-pbm-cs-3-ht-v-3-1-chromium-x-3-1-high-6-1-0
+
+#▸ Link to Code:
+ # https://github.com/kpatel427/YouTubeTutorials/blob/main/annotateSingleR.R
+
+#▸ Resources/Vignettes:
+ #1. https://www.nature.com/articles/s41596-021-00534-0#sec3
+ #2. https://bioconductor.org/books/release/SingleRBook/
+ #3. https://bioconductor.org/books/3.14/OSCA.basic/cell-type-annotation.html#assigning-cell-labels-from-reference-data
+
+
+
+#---------------------------------------------Automatic cell Annotation (SingleR) one Reference-------------------------------------------------------------------
+
+
+
+#---------------------------------------------Automatic cell Annotation (SingleR) multiple Reference-------------------------------------------------------------------
+
+#Strategies for using multiple references
+ #Strategy 1: Using reference-specific labels in a combined reference
+  #Cons:
+   #Batch effects are not taken care of
+   #Loss of precision due to noise during the calculation of the score in each reference
+   #Risk of technical variation dominating classification results
+ #Strategy 2: Combining scores across multiple references (default approach implemented in SingleR)
+  #Cons:
+   #Lack of consistency in labels across references complicates interpretation
+ #Strategy 3: Using harmonized labels in a combined reference
+  #Cons:
+   #Assumes that harmonized labels are available
+   #Mapping process also runs the risk of discarding relevant information about the biological status (e.g., activation status, disease condition) if there is 
+   #no obvious counterpart for that state in the ontology.
+
+#Study design and Goal of Analysis
+ #Goal: Annotate cell types in 20k human peripheral blood mononuclear cells (PBMCs)
+ #Study Design: PBMCs of a healthy female donor aged 25-30 were obtained by 10x Genomics.
+
+
+#Required R packages
+ #singleR (v1.6.1)
+ #celldex (v1.2.0)   reference data set
+ #Seurat (v4.3.0)
+ #tidyverse (v2.0.0)
+ #pheatmap (v1.0.12)
+
+#SCRIPT
+# script to annotate cell types from 20k Human PBMCs from a healthy female donor
+#Set path 
+setwd("D:/AMAN_PhD/Script/scRNA_seq/Seurat/Automatic_cell_Annotation_SingleR")
+
+#Install packages
+if (!require("BiocManager", quietly = TRUE))
+  install.packages("BiocManager")
+BiocManager::install("SingleR")
+BiocManager::install("celldex")
+install.packages("pheatmap")
+install.packages("hdf5r")
+
+
+#Load libraries
+library(SingleR)
+library(celldex)  
+library(Seurat)
+library(tidyverse)
+library(pheatmap)
+
+# 10X CellRanger .HDF5 format ---------
+hdf5_obj <- Read10X_h5(filename = "D:/AMAN_PhD/Script/scRNA_seq/Seurat/Automatic_cell_Annotation_SingleR/20k_PBMC_3p_HT_nextgem_Chromium_X_filtered_feature_bc_matrix.h5",
+                       use.names = TRUE,
+                       unique.features = TRUE)
+pbmc.seurat <- CreateSeuratObject(counts = hdf5_obj)
+pbmc.seurat
+
+# QC and Filtering ----------
+# explore QC
+pbmc.seurat$mitoPercent <- PercentageFeatureSet(pbmc.seurat, pattern = '^MT-')
+VlnPlot(pbmc.seurat, features = c("nFeature_RNA", "nCount_RNA", "mitoPercent"), ncol = 3)
+pbmc.seurat.filtered <- subset(pbmc.seurat, subset = nCount_RNA > 800 &
+                                 nFeature_RNA > 500 &
+                                 mitoPercent < 10)
+
+# It is a good practice to filter out cells with non-sufficient genes identified and genes with non-sufficient expression across cells.
+
+
+# pre-process standard workflow ---------------
+pbmc.seurat.filtered <- NormalizeData(object = pbmc.seurat.filtered)
+pbmc.seurat.filtered <- FindVariableFeatures(object = pbmc.seurat.filtered)
+pbmc.seurat.filtered <- ScaleData(object = pbmc.seurat.filtered)
+pbmc.seurat.filtered <- RunPCA(object = pbmc.seurat.filtered)
+ElbowPlot(pbmc.seurat.filtered)
+pbmc.seurat.filtered <- FindNeighbors(object = pbmc.seurat.filtered, dims = 1:20)
+pbmc.seurat.filtered <- FindClusters(object = pbmc.seurat.filtered)
+pbmc.seurat.filtered <- RunUMAP(object = pbmc.seurat.filtered, dims = 1:20)
+
+# running steps above to get clusters
+DimPlot(pbmc.seurat.filtered, reduction = "umap")
+View(pbmc.seurat.filtered@meta.data)
+
+
+# run SingleR with multiple reference datasets (default mode) ---------
+
+# for pbmc data, we will use two datasets
+hpca <- celldex::HumanPrimaryCellAtlasData()
+dice <- celldex::DatabaseImmuneCellExpressionData()
+
+# ...1. Strategy 1: Using reference-specific labels ----------
+hpca$label.main
+dice$label.main
+
+# adding ref info to labels
+hpca$label.main <- paste0('HPCA.', hpca$label.main)
+dice$label.main <- paste0('DICE.', dice$label.main)
+
+# create a combined ref based on shared genes
+shared <- intersect(rownames(hpca), rownames(dice))
+combined <- cbind(hpca[shared,], dice[shared,])
+combined
+combined$label.main
+
+# run singleR using combined ref
+# savings counts into a separate object
+pbmc_counts <- GetAssayData(
+  pbmc.seurat.filtered,
+  assay = "RNA",
+  layer = "counts"
+)
+
+com.res1 <- SingleR(test = pbmc_counts, ref = combined, labels = combined$label.main)
+table(com.res1$labels)
+
+pbmc.seurat.filtered$com.res1.labels <- com.res1[match(rownames(pbmc.seurat.filtered@meta.data), rownames(com.res1)), 'labels']
+View(pbmc.seurat.filtered@meta.data)
+
+DimPlot(pbmc.seurat.filtered, reduction = 'umap', group.by = 'com.res1.labels', label = TRUE)
+
+# ...2. Strategy 2: Comparing scores across references ----------
+
+hpca$label.main
+dice$label.main
+hpca$label.main <- gsub('HPCA\\.','', hpca$label.main)
+dice$label.main <- gsub('DICE\\.','', dice$label.main)
+
+com.res2 <- SingleR(test = pbmc_counts, 
+                    ref = list(HPCA = hpca, DICE = dice),
+                    labels = list(hpca$label.main, dice$label.main))
+
+# Check the final label from the combined assignment.
+table(com.res2$labels)
+
+# which reference scored best for which label?
+grouping <- paste0(com.res2$labels,'.', com.res2$reference)
+best_ref <- as.data.frame(split(com.res2, grouping))
+
+# get de. genes from each individual references
+metadata(com.res2$orig.results$HPCA)$de.genes
+metadata(com.res2$orig.results$DICE)$de.genes
+
+# Combined diagnostics
+plotScoreHeatmap(com.res2)
+
+
+# ...3. Strategy 3: Using Harmonized Labels ----------
+
+hpca.ont <- celldex::HumanPrimaryCellAtlasData(cell.ont = 'nonna')
+dice.ont <- celldex::DatabaseImmuneCellExpressionData(cell.ont = 'nonna')
+
+# Using the same sets of genes:
+shared <- intersect(rownames(hpca.ont), rownames(dice.ont))
+hpca.ont <- hpca.ont[shared,]
+dice.ont <- dice.ont[shared,]
+
+# Showing the top 10 most frequent terms:
+tail(sort(table(hpca.ont$label.ont)),10)
+tail(sort(table(dice.ont$label.ont)), 10)
+
+# using label.ont instead on label.main while running SingleR
+
+com.res3 <- SingleR(test = pbmc_counts,
+                    ref = list(HPCA = hpca.ont, DICE = dice.ont),
+                    labels = list(hpca.ont$label.ont, dice.ont$label.ont))
+
+
+table(com.res3$labels)
+
+
+
+# How to map cell ontology terms? ----------------
+
+colData(hpca.ont)
+colData(dice.ont)
+
+hpca.fle <- system.file("mapping","hpca.tsv", package = "celldex")
+hpca.mapping <- read.delim(hpca.fle, header = F)
+
+
+
+
+
+#DATA SOURCE
+
+#▸ Link to Data:
+  #https://www.10xgenomics.com/datasets/20-k-human-pbm-cs-3-ht-v-3-1-chromium-x-3-1-high-6-1-0
+
+#▸ Link to Code:
+  #https://github.com/kpatel427/YouTubeTutorials/blob/main/annotateSingleR_multipleRefs.R
+
+#▸ Resources/Vignettes:
+  #1. https://www.nature.com/articles/s41596-021-00534-0#sec3
+  #2. https://bioconductor.org/books/release/SingleRBook/
+  #3. https://bioconductor.org/books/3.14/OSCA.basic/cell-type-annotation.html#assigning-cell-labels-from-reference-data
+
+
+
+#---------------------------------------------Automatic cell Annotation (SingleR) multiple Reference-------------------------------------------------------------------
+
